@@ -41,10 +41,17 @@ curl -fsSL https://raw.githubusercontent.com/agent-bridges/ab/master/install.sh 
 
 This mode does not require copying `.env`, does not require cloning child repos, and uses the checked-in [`.env.quick-start`](./.env.quick-start) defaults plus isolated `./state/quick-start/*` paths.
 
-Stop it with:
+Stop a repo-local quick start with:
 
 ```bash
 docker compose --env-file .env.quick-start -f docker-compose.quick-start.yml down
+```
+
+Remove a curl-installed quick start with:
+
+```bash
+docker compose --env-file ~/.agent-bridge/.env.quick-start -f ~/.agent-bridge/docker-compose.quick-start.yml down -v --remove-orphans
+rm -rf ~/.agent-bridge
 ```
 
 Open it:
