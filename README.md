@@ -13,6 +13,15 @@ Agent-Bridge is a persistent workspace platform for AI coding agents. It combine
   Persistent agent workspaces, terminal sessions, canvas coordination, and deploy orchestration from a single root.
 </p>
 
+<p align="center">
+  <a href="https://youtu.be/ei4Jf2JPSSk">
+    <img src="https://img.youtube.com/vi/ei4Jf2JPSSk/maxresdefault.jpg" alt="Agent-Bridge Demo" width="80%" />
+  </a>
+</p>
+<p align="center">
+  <a href="https://youtu.be/ei4Jf2JPSSk">▶ Watch the demo</a>
+</p>
+
 Current release series:
 - `v0.1.6`
 
