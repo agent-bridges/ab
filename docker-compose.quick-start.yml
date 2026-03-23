@@ -1,0 +1,233 @@
+name: ab-quick-start
+
+services:
+  quick-start-init:
+    image: alpine:3.21
+    restart: "no"
+    env_file:
+      - ./.env.quick-start
+    volumes:
+      - ./state/quick-start/back:/state/back
+      - ./state/quick-start/pty:/state/pty
+      - ./state/quick-start/demo/agent:/state/demo/agent
+      - ./state/quick-start/demo/agent-2:/state/demo/agent-2
+      - ./workspace:/workspace
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        mkdir -p /state/back /state/pty/dot-claude /state/demo/agent/data /state/demo/agent-2/data /workspace
+        touch /state/pty/claude.json
+        if [ ! -f /state/back/jwt-secret ]; then
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /state/back/jwt-secret
+          printf '\n' >> /state/back/jwt-secret
+        fi
+        if [ ! -f /state/demo/agent/.jwt-secret ]; then
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /state/demo/agent/.jwt-secret
+          printf '\n' >> /state/demo/agent/.jwt-secret
+        fi
+        if [ ! -f /state/demo/agent-2/.jwt-secret ]; then
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /state/demo/agent-2/.jwt-secret
+          printf '\n' >> /state/demo/agent-2/.jwt-secret
+        fi
+  pty:
+    build:
+      context: ./docker/agent-runtime
+    image: agent-bridge-agent-runtime:quick-start
+    restart: unless-stopped
+    pid: host
+    depends_on:
+      quick-start-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./workspace:/workspace
+      - ./state/quick-start/pty:/state/pty
+      - ./state/quick-start/pty/dot-claude:/root/.claude
+      - ./state/quick-start/pty/claude.json:/root/.claude.json
+      - ./state/quick-start/back/jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+    expose:
+      - "8421"
+    environment:
+      AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
+      AB_PTY_RELEASE_TAG: ${AB_QUICK_START_PTY_RELEASE_TAG}
+      AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /state/pty/sessions.db
+      AB_PTY_ALLOWED_ORIGINS: ${AB_QUICK_START_PTY_ALLOWED_ORIGINS}
+
+  back:
+    image: ${AB_QUICK_START_BACK_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      quick-start-init:
+        condition: service_completed_successfully
+      pty:
+        condition: service_started
+    volumes:
+      - ./workspace:/workspace
+      - ./state/quick-start/back:/state/back
+    ports:
+      - "${AB_QUICK_START_BACKEND_PORT}:8420"
+    env_file:
+      - ./.env.quick-start
+    environment:
+      AB_BACK_PORT: "8420"
+      AB_BACK_DB_PATH: /state/back/ab.db
+      AB_BACK_PTY_URL: http://pty:8421
+      AB_BACK_PTY_WS_URL: ws://pty:8421
+
+  front:
+    image: ${AB_QUICK_START_FRONT_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      back:
+        condition: service_started
+    environment:
+      BACKEND_UPSTREAM: back:8420
+    ports:
+      - "${AB_QUICK_START_FRONT_PORT}:5180"
+
+  agent-demo:
+    build:
+      context: ./docker/agent-runtime
+    image: agent-bridge-agent-runtime:quick-start
+    restart: unless-stopped
+    depends_on:
+      quick-start-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./workspace:/workspace
+      - ./state/quick-start/demo/agent/data:/data
+      - ./state/quick-start/demo/agent/.jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+    expose:
+      - "8421"
+    environment:
+      AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
+      AB_PTY_RELEASE_TAG: ${AB_QUICK_START_PTY_RELEASE_TAG}
+      AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /data/sessions.db
+
+  agent-demo-2:
+    build:
+      context: ./docker/agent-runtime
+    image: agent-bridge-agent-runtime:quick-start
+    restart: unless-stopped
+    depends_on:
+      quick-start-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./workspace:/workspace
+      - ./state/quick-start/demo/agent-2/data:/data
+      - ./state/quick-start/demo/agent-2/.jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+    expose:
+      - "8421"
+    environment:
+      AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
+      AB_PTY_RELEASE_TAG: ${AB_QUICK_START_PTY_RELEASE_TAG}
+      AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /data/sessions.db
+
+  quick-start-seed:
+    image: ${AB_QUICK_START_BACK_IMAGE}
+    restart: "no"
+    depends_on:
+      back:
+        condition: service_started
+      agent-demo:
+        condition: service_started
+      agent-demo-2:
+        condition: service_started
+    volumes:
+      - ./state/quick-start/back:/state/back
+      - ./state/quick-start/demo/agent:/state/demo/agent:ro
+      - ./state/quick-start/demo/agent-2:/state/demo/agent-2:ro
+    env_file:
+      - ./.env.quick-start
+    entrypoint:
+      - python3
+      - -c
+      - |
+        import base64
+        import hashlib
+        import hmac
+        import json
+        import os
+        import sqlite3
+        import sys
+        import time
+        from pathlib import Path
+
+        db_path = Path("/state/back/ab.db")
+        for _ in range(60):
+          if db_path.exists():
+            try:
+              conn = sqlite3.connect(db_path)
+              try:
+                row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").fetchone()
+                if row:
+                  break
+              finally:
+                conn.close()
+            except sqlite3.Error:
+              pass
+          time.sleep(1)
+        else:
+          print(f"Backend DB is not ready: {db_path}", file=sys.stderr)
+          sys.exit(1)
+
+        header = {"alg": "HS256", "typ": "JWT"}
+
+        def b64(data: bytes) -> str:
+          return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+        def make_jwt(secret_path: str) -> str:
+          secret = Path(secret_path).read_text().strip()
+          payload = {
+            "sub": "ab-pty",
+            "iat": int(time.time()),
+            "exp": int(time.time() + 365 * 24 * 60 * 60),
+          }
+          signing_input = (
+            f"{b64(json.dumps(header, separators=(',', ':')).encode())}."
+            f"{b64(json.dumps(payload, separators=(',', ':')).encode())}"
+          )
+          signature = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
+          return f"{signing_input}.{b64(signature)}"
+
+        agents = [
+          (
+            os.environ["AB_QUICK_START_DEMO_AGENT_NAME"],
+            os.environ["AB_QUICK_START_DEMO_AGENT_IP"],
+            make_jwt("/state/demo/agent/.jwt-secret"),
+          ),
+          (
+            os.environ["AB_QUICK_START_DEMO_AGENT_2_NAME"],
+            os.environ["AB_QUICK_START_DEMO_AGENT_2_IP"],
+            make_jwt("/state/demo/agent-2/.jwt-secret"),
+          ),
+        ]
+
+        conn = sqlite3.connect(db_path)
+        try:
+          now = time.strftime("%Y-%m-%d %H:%M:%S")
+          for name, ip, jwt_key in agents:
+            row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
+            if row:
+              conn.execute(
+                "UPDATE agents SET ip = ?, jwt_key = ?, is_local = 0, updated_at = ? WHERE id = ?",
+                (ip, jwt_key, now, row[0]),
+              )
+            else:
+              conn.execute(
+                "INSERT INTO agents (name, ip, jwt_key, is_local, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+                (name, ip, jwt_key, now, now),
+              )
+          conn.commit()
+        finally:
+          conn.close()

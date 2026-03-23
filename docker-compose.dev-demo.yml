@@ -1,0 +1,31 @@
+services:
+  agent-demo:
+    build:
+      context: ${AB_PTY_PATH}
+      dockerfile: Dockerfile.dev
+    working_dir: /tmp
+    command:
+      - bash
+      - -lc
+      - |
+        export PATH="/root/.local/bin:/go/bin:/usr/local/go/bin:${PATH}"
+        rm -rf /tmp/pty-work
+        mkdir -p /tmp/pty-work
+        cp /src/*.go /src/go.mod /src/go.sum /tmp/pty-work/
+        cp /src/claude-hooks-settings.json /tmp/pty-work/claude-hooks.json
+        cp /src/claude-hook-forwarder.sh /usr/local/bin/claude-hook-forwarder
+        chmod +x /usr/local/bin/claude-hook-forwarder
+        cp /src/claudes /usr/local/bin/claudes
+        chmod +x /usr/local/bin/claudes
+        cd /tmp/pty-work
+        CGO_ENABLED=1 go build -o /tmp/ab-pty .
+        exec /tmp/ab-pty
+    volumes:
+      - ${AB_PTY_PATH}:/src:ro
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_DEMO_AGENT_STATE_DIR}:/data
+      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+    environment:
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /data/sessions.db
+      AB_PTY_ALLOWED_ORIGINS: ${AB_PTY_ALLOWED_ORIGINS}

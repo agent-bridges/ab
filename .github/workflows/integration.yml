@@ -1,0 +1,89 @@
+name: Integration
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout deploy root
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare runtime config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          mkdir -p state/back
+          openssl rand -hex 32 > state/back/jwt-secret
+          sed -i "s|^AB_WORKSPACE_PATH=__REPO_ROOT__|AB_WORKSPACE_PATH=${GITHUB_WORKSPACE}|" .env
+          printf '\nAB_JWT_SECRET_PATH=%s/state/back/jwt-secret\n' "${GITHUB_WORKSPACE}" >> .env
+
+      - name: Validate compose files
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml config >/tmp/ab-compose-prod.yaml
+          docker compose -f docker-compose.yml -f docker-compose.demo.yml config >/tmp/ab-compose-prod-demo.yaml
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config >/tmp/ab-compose-dev.yaml
+
+      - name: Start production-style stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/bootstrap.sh
+          docker compose -f docker-compose.yml pull
+          scripts/stack.sh up --mode prod
+
+      - name: Wait for smoke endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          for url in \
+            http://127.0.0.1:8520/api/auth/status \
+            http://127.0.0.1:5281/api/auth/status
+          do
+            for _ in $(seq 1 60); do
+              if curl -fsS "${url}" >/dev/null 2>&1; then
+                echo "ready: ${url}"
+                break
+              fi
+              sleep 1
+            done
+            curl -fsS "${url}"
+          done
+          docker compose exec -T pty sh -lc 'curl -fsS http://127.0.0.1:8421/health'
+          docker compose exec -T agent-demo sh -lc 'curl -fsS http://127.0.0.1:8421/health'
+          curl -fsS http://127.0.0.1:8520/api/agents | grep -q 'docker-demo-agent'
+
+      - name: Collect logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/stack.sh ps --mode prod || true
+          scripts/stack.sh logs --mode prod || true
+
+      - name: Stop production-style stack
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/stack.sh down --mode prod --remove-orphans

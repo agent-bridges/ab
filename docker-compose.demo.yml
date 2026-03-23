@@ -1,0 +1,18 @@
+services:
+  agent-demo:
+    build:
+      context: ./docker/agent-runtime
+    image: agent-bridge-agent-runtime:${AB_IMAGE_TAG}
+    restart: unless-stopped
+    volumes:
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_DEMO_AGENT_STATE_DIR}:/data
+      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+    expose:
+      - "8421"
+    environment:
+      AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
+      AB_PTY_RELEASE_TAG: ${AB_IMAGE_TAG}
+      AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /data/sessions.db

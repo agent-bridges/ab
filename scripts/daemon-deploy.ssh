@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+DEFAULT_REMOTE_DIR="/opt/agent-bridge"
+DEFAULT_SERVICE_NAME="ab-pty"
+DEFAULT_PORT="8421"
+
+TARGET="${1:-}"
+SSH_MODE="${SSH_MODE:-}"
+SSH_KEY_PATH="${SSH_KEY_PATH:-}"
+SSH_CONNECT_PORT="${SSH_CONNECT_PORT:-22}"
+REMOTE_DIR="${REMOTE_DIR:-$DEFAULT_REMOTE_DIR}"
+SERVICE_NAME="${SERVICE_NAME:-$DEFAULT_SERVICE_NAME}"
+PORT="${PORT:-$DEFAULT_PORT}"
+AGENT_HOST="${AGENT_HOST:-}"
+ARTIFACT_SOURCE="${AB_PTY_ARTIFACT_SOURCE:-release}"
+ARTIFACT_PATH="${AB_PTY_ARTIFACT_PATH:-}"
+RELEASE_REPO="${AB_PTY_RELEASE_REPO:-agent-bridges/ab-pty}"
+RELEASE_TAG="${AB_PTY_RELEASE_TAG:-}"
+VERSION_FILE="${REPO_ROOT}/ab-pty/VERSION"
+TMP_ARTIFACT_DIR=""
+
+cleanup_tmp_artifact() {
+  if [[ -n "${TMP_ARTIFACT_DIR}" && -d "${TMP_ARTIFACT_DIR}" ]]; then
+    rm -rf "${TMP_ARTIFACT_DIR}"
+  fi
+}
+
+trap cleanup_tmp_artifact EXIT
+
+prompt_value() {
+  local __var_name="$1"
+  local label="$2"
+  local default_value="${3:-}"
+  local input=""
+
+  if [[ -n "${default_value}" ]]; then
+    read -r -p "${label} [${default_value}]: " input
+    input="${input:-$default_value}"
+  else
+    read -r -p "${label}: " input
+  fi
+
+  printf -v "${__var_name}" '%s' "${input}"
+}
+
+confirm() {
+  local prompt="$1"
+  local default_answer="${2:-N}"
+  local suffix="[y/N]"
+  local input=""
+
+  if [[ "${default_answer}" == "Y" ]]; then
+    suffix="[Y/n]"
+  fi
+
+  read -r -p "${prompt} ${suffix} " input
+  input="${input:-$default_answer}"
+  [[ "${input}" =~ ^[Yy]$ ]]
+}
+
+require_local_tools() {
+  local missing=0
+  local tool
+
+  for tool in ssh scp awk sed mktemp wc curl; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+      echo "Missing required tool: ${tool}" >&2
+      missing=1
+    fi
+  done
+
+  if [[ "${missing}" -ne 0 ]]; then
+    exit 1
+  fi
+}
+
+load_release_defaults() {
+  if [[ ! -f "${VERSION_FILE}" ]]; then
+    echo "Missing VERSION file: ${VERSION_FILE}" >&2
+    exit 1
+  fi
+
+  LOCAL_VERSION="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+  RELEASE_TAG="${RELEASE_TAG:-v${LOCAL_VERSION}}"
+
+  if [[ -z "${LOCAL_VERSION}" ]]; then
+    echo "Unable to read local daemon version from ${VERSION_FILE}" >&2
+    exit 1
+  fi
+}
+
+build_ssh_args() {
+  SSH_ARGS=(-o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new)
+  if [[ "${SSH_MODE}" == "key" ]]; then
+    if [[ ! -f "${SSH_KEY_PATH}" ]]; then
+      echo "Private key not found: ${SSH_KEY_PATH}" >&2
+      exit 1
+    fi
+    SSH_ARGS+=(-i "${SSH_KEY_PATH}" -o IdentitiesOnly=yes -o "Port=${SSH_CONNECT_PORT}")
+  fi
+}
+
+remote_bash() {
+  local cmd="$1"
+  ssh "${SSH_ARGS[@]}" "${TARGET}" "bash -lc $(printf '%q' "${cmd}")"
+}
+
+copy_to_remote() {
+  local local_path="$1"
+  local remote_path="$2"
+  scp "${SSH_ARGS[@]}" "${local_path}" "${TARGET}:${remote_path}"
+}
+
+resolve_agent_host_default() {
+  if [[ -n "${AGENT_HOST}" ]]; then
+    printf '%s' "${AGENT_HOST}"
+    return
+  fi
+
+  if [[ "${SSH_MODE}" == "alias" ]]; then
+    local resolved_host
+    resolved_host="$(ssh -G "${TARGET}" 2>/dev/null | awk '/^hostname / { print $2; exit }')"
+    if [[ -n "${resolved_host}" ]]; then
+      printf '%s' "${resolved_host}"
+      return
+    fi
+  fi
+
+  printf '%s' "${TARGET#*@}"
+}
+
+prompt_wizard() {
+  echo "AB PTY host-daemon deploy wizard"
+  echo
+
+  if [[ -z "${SSH_MODE}" ]]; then
+    echo "SSH connection mode:"
+    echo "  1) alias from ~/.ssh/config"
+    echo "  2) host/user@host + private key"
+    local mode_choice=""
+    read -r -p "Choose mode [1/2]: " mode_choice
+    case "${mode_choice}" in
+      1|alias|"")
+        SSH_MODE="alias"
+        ;;
+      2|key)
+        SSH_MODE="key"
+        ;;
+      *)
+        echo "Unsupported SSH mode: ${mode_choice}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  if [[ "${SSH_MODE}" == "alias" ]]; then
+    if [[ -z "${TARGET}" ]]; then
+      prompt_value TARGET "SSH alias from ~/.ssh/config"
+    fi
+  elif [[ "${SSH_MODE}" == "key" ]]; then
+    if [[ -z "${SSH_KEY_PATH}" ]]; then
+      prompt_value SSH_KEY_PATH "Private key path"
+    fi
+    if [[ -z "${TARGET}" ]]; then
+      prompt_value TARGET "SSH host or user@host"
+    fi
+    prompt_value SSH_CONNECT_PORT "SSH port" "${SSH_CONNECT_PORT}"
+  else
+    echo "Unsupported SSH mode: ${SSH_MODE}" >&2
+    exit 1
+  fi
+
+  if [[ -z "${TARGET}" ]]; then
+    echo "SSH target is required" >&2
+    exit 1
+  fi
+
+  prompt_value REMOTE_DIR "Remote daemon directory" "${REMOTE_DIR}"
+  prompt_value SERVICE_NAME "Daemon service/binary name" "${SERVICE_NAME}"
+  prompt_value PORT "Daemon listen port" "${PORT}"
+
+  if [[ "${ARTIFACT_SOURCE}" == "release" ]]; then
+    prompt_value RELEASE_TAG "Release tag to deploy" "${RELEASE_TAG}"
+  fi
+
+  local derived_host
+  derived_host="$(resolve_agent_host_default)"
+  prompt_value AGENT_HOST "Agent host/IP to print for AB" "${AGENT_HOST:-$derived_host}"
+}
+
+detect_remote_sudo() {
+  if [[ "$(remote_bash 'id -u')" == "0" ]]; then
+    REMOTE_SUDO=""
+  else
+    REMOTE_SUDO="sudo"
+    remote_bash "command -v sudo >/dev/null 2>&1"
+  fi
+}
+
+collect_remote_state() {
+  REMOTE_BIN="${REMOTE_DIR}/${SERVICE_NAME}"
+  REMOTE_TMP_BIN="${REMOTE_DIR}/.${SERVICE_NAME}-${LOCAL_VERSION}.tmp"
+  REMOTE_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+  REMOTE_JWT_SECRET="${REMOTE_DIR}/.jwt-secret"
+  REMOTE_DATA_DIR="${REMOTE_DIR}/data"
+  REMOTE_LOG_PATH="${REMOTE_DIR}/${SERVICE_NAME}.log"
+  REMOTE_PID_PATH="${REMOTE_DIR}/.${SERVICE_NAME}.pid"
+
+  REMOTE_PATH_ENV="$(remote_bash 'printf "%s" "$PATH"')"
+  EXISTING_BIN="$(remote_bash "[[ -e $(printf '%q' "${REMOTE_BIN}") ]] && echo yes || true")"
+  EXISTING_UNIT="$(remote_bash "[[ -e $(printf '%q' "${REMOTE_UNIT_PATH}") ]] && echo yes || true")"
+  EXISTING_SECRET="$(remote_bash "[[ -e $(printf '%q' "${REMOTE_JWT_SECRET}") ]] && echo yes || true")"
+  EXISTING_VERSION="$(remote_bash "if [[ -x $(printf '%q' "${REMOTE_BIN}") ]]; then $(printf '%q' "${REMOTE_BIN}") version 2>/dev/null || true; fi")"
+  HAS_SYSTEMD="$(remote_bash "command -v systemctl >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_CURL="$(remote_bash "command -v curl >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_NPM="$(remote_bash "command -v npm >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_CODEX="$(remote_bash "command -v codex >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_CLAUDE="$(remote_bash "command -v claude >/dev/null 2>&1 && echo yes || true")"
+  HAS_APK="$(remote_bash "command -v apk >/dev/null 2>&1 && echo yes || true")"
+  HAS_APT_GET="$(remote_bash "command -v apt-get >/dev/null 2>&1 && echo yes || true")"
+  HAS_DNF="$(remote_bash "command -v dnf >/dev/null 2>&1 && echo yes || true")"
+  HAS_YUM="$(remote_bash "command -v yum >/dev/null 2>&1 && echo yes || true")"
+  REMOTE_ARCH_RAW="$(remote_bash "uname -m")"
+}
+
+resolve_remote_artifact_name() {
+  case "${REMOTE_ARCH_RAW}" in
+    x86_64|amd64)
+      ARTIFACT_NAME="ab-pty-linux-amd64-glibc"
+      ;;
+    aarch64|arm64)
+      ARTIFACT_NAME="ab-pty-linux-arm64-glibc"
+      ;;
+    *)
+      echo "Unsupported remote architecture: ${REMOTE_ARCH_RAW}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+download_release_artifact() {
+  local artifact_url
+  artifact_url="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${ARTIFACT_NAME}"
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  TMP_ARTIFACT_DIR="${tmp_dir}"
+  ARTIFACT_PATH="${tmp_dir}/${ARTIFACT_NAME}"
+
+  echo "Downloading ${ARTIFACT_NAME} from ${RELEASE_REPO} ${RELEASE_TAG}..."
+  if ! curl -fsSL "${artifact_url}" -o "${ARTIFACT_PATH}"; then
+    rm -rf "${tmp_dir}"
+    echo "Unable to download release artifact: ${artifact_url}" >&2
+    exit 1
+  fi
+
+  chmod +x "${ARTIFACT_PATH}"
+  LOCAL_VERSION="${RELEASE_TAG#v}"
+  LOCAL_SIZE="$(wc -c < "${ARTIFACT_PATH}" | tr -d '[:space:]')"
+}
+
+load_local_artifact() {
+  if [[ -z "${ARTIFACT_PATH}" ]]; then
+    ARTIFACT_PATH="${REPO_ROOT}/ab-pty/.artifacts/ab-pty-linux-amd64-glibc"
+  fi
+
+  if [[ ! -f "${ARTIFACT_PATH}" ]]; then
+    echo "Missing prebuilt daemon artifact: ${ARTIFACT_PATH}" >&2
+    echo "Build it first with: ${REPO_ROOT}/scripts/build-daemon-artifact.sh" >&2
+    exit 1
+  fi
+
+  LOCAL_SIZE="$(wc -c < "${ARTIFACT_PATH}" | tr -d '[:space:]')"
+}
+
+install_remote_cli_prereqs() {
+  if [[ -n "${HAS_REMOTE_CURL}" && -n "${HAS_REMOTE_NPM}" ]]; then
+    return
+  fi
+
+  if [[ -n "${HAS_APK}" ]]; then
+    remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }apk add --no-cache curl ca-certificates nodejs npm"
+    return
+  fi
+
+  if [[ -n "${HAS_APT_GET}" ]]; then
+    remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }apt-get update && ${REMOTE_SUDO:+${REMOTE_SUDO} }env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates nodejs npm"
+    return
+  fi
+
+  if [[ -n "${HAS_DNF}" ]]; then
+    remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }dnf install -y curl ca-certificates nodejs npm"
+    return
+  fi
+
+  if [[ -n "${HAS_YUM}" ]]; then
+    remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }yum install -y curl ca-certificates nodejs npm"
+    return
+  fi
+
+  echo "Unable to install remote CLI prerequisites: unsupported package manager on ${TARGET}" >&2
+  exit 1
+}
+
+ensure_remote_cli_tools() {
+  if [[ -n "${HAS_REMOTE_CODEX}" && -n "${HAS_REMOTE_CLAUDE}" ]]; then
+    return
+  fi
+
+  echo
+  echo "Remote shell tools are missing on ${TARGET}."
+  [[ -z "${HAS_REMOTE_CODEX}" ]] && echo "  - codex"
+  [[ -z "${HAS_REMOTE_CLAUDE}" ]] && echo "  - claude"
+
+  if ! confirm "Install missing shell tools on remote host now?" "Y"; then
+    return
+  fi
+
+  install_remote_cli_prereqs
+
+  if [[ -z "${HAS_REMOTE_CODEX}" ]]; then
+    if ! remote_bash "npm i -g @openai/codex"; then
+      echo "Warning: failed to install codex on ${TARGET}" >&2
+    fi
+  fi
+
+  if [[ -z "${HAS_REMOTE_CLAUDE}" ]]; then
+    if ! remote_bash "set -euo pipefail; for attempt in 1 2 3; do tmp=\$(mktemp); if curl -fsSL https://claude.ai/install.sh -o \"\$tmp\" && bash \"\$tmp\"; then rm -f \"\$tmp\"; exit 0; fi; rm -f \"\$tmp\"; sleep 5; done; exit 1"; then
+      echo "Warning: failed to install Claude Code on ${TARGET}" >&2
+    fi
+  fi
+
+  if ! remote_bash "if [[ -x \"\$HOME/.local/bin/claude\" ]]; then ${REMOTE_SUDO:+${REMOTE_SUDO} }ln -sfn \"\$HOME/.local/bin/claude\" /usr/local/bin/claude; fi"; then
+    echo "Warning: failed to symlink Claude Code on ${TARGET}" >&2
+  fi
+
+  HAS_REMOTE_CURL="$(remote_bash "command -v curl >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_NPM="$(remote_bash "command -v npm >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_CODEX="$(remote_bash "command -v codex >/dev/null 2>&1 && echo yes || true")"
+  HAS_REMOTE_CLAUDE="$(remote_bash "command -v claude >/dev/null 2>&1 && echo yes || true")"
+}
+
+write_systemd_unit() {
+  local unit_file
+  unit_file="$(mktemp)"
+  cat > "${unit_file}" <<EOF
+[Unit]
+Description=AB PTY Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${REMOTE_BIN}
+WorkingDirectory=${REMOTE_DIR}
+Environment="PATH=${REMOTE_PATH_ENV}"
+Environment="AB_PTY_PORT=${PORT}"
+Environment="AB_PTY_DATABASE=${REMOTE_DATA_DIR}/sessions.db"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  local remote_unit_tmp="/tmp/${SERVICE_NAME}.service.$$"
+  copy_to_remote "${unit_file}" "${remote_unit_tmp}"
+  remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }mv $(printf '%q' "${remote_unit_tmp}") $(printf '%q' "${REMOTE_UNIT_PATH}") && ${REMOTE_SUDO:+${REMOTE_SUDO} }chmod 0644 $(printf '%q' "${REMOTE_UNIT_PATH}")"
+  rm -f "${unit_file}"
+}
+
+deploy_binary() {
+  remote_bash "mkdir -p $(printf '%q' "${REMOTE_DIR}") $(printf '%q' "${REMOTE_DATA_DIR}")"
+  copy_to_remote "${ARTIFACT_PATH}" "${REMOTE_TMP_BIN}"
+
+  local remote_size
+  remote_size="$(remote_bash "wc -c < $(printf '%q' "${REMOTE_TMP_BIN}") | tr -d '[:space:]'")"
+  if [[ "${remote_size}" != "${LOCAL_SIZE}" ]]; then
+    remote_bash "rm -f $(printf '%q' "${REMOTE_TMP_BIN}")"
+    echo "Remote size mismatch: local=${LOCAL_SIZE} remote=${remote_size}" >&2
+    exit 1
+  fi
+
+  remote_bash "chmod +x $(printf '%q' "${REMOTE_TMP_BIN}")"
+  local remote_version
+  remote_version="$(remote_bash "$(printf '%q' "${REMOTE_TMP_BIN}") version | tail -n 1")"
+  if [[ -z "${remote_version}" ]]; then
+    remote_bash "rm -f $(printf '%q' "${REMOTE_TMP_BIN}")"
+    echo "Remote binary did not return a version string" >&2
+    exit 1
+  fi
+
+  if [[ "${remote_version}" != "${LOCAL_VERSION}" ]]; then
+    echo "Warning: VERSION file says ${LOCAL_VERSION}, binary reports ${remote_version}. Using binary version." >&2
+  fi
+
+  DEPLOYED_VERSION="${remote_version}"
+  REMOTE_VERSIONED_BIN="${REMOTE_DIR}/${SERVICE_NAME}-${DEPLOYED_VERSION}"
+  remote_bash "rm -f $(printf '%q' "${REMOTE_VERSIONED_BIN}") && mv $(printf '%q' "${REMOTE_TMP_BIN}") $(printf '%q' "${REMOTE_VERSIONED_BIN}") && ln -sfn $(printf '%q' "${REMOTE_VERSIONED_BIN}") $(printf '%q' "${REMOTE_BIN}")"
+}
+
+ensure_remote_secret() {
+  local rotate_secret="$1"
+  if [[ -n "${EXISTING_SECRET}" && "${rotate_secret}" != "yes" ]]; then
+    return
+  fi
+
+  remote_bash "$(printf '%q' "${REMOTE_BIN}") genjwt -gen-secret -dir $(printf '%q' "${REMOTE_DIR}") >/dev/null"
+  EXISTING_SECRET="yes"
+}
+
+restart_remote_service_systemd() {
+  write_systemd_unit
+  remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }systemctl daemon-reload"
+  remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }systemctl enable $(printf '%q' "${SERVICE_NAME}") >/dev/null"
+  remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }systemctl restart $(printf '%q' "${SERVICE_NAME}")"
+  remote_bash "${REMOTE_SUDO:+${REMOTE_SUDO} }systemctl is-active $(printf '%q' "${SERVICE_NAME}") >/dev/null"
+}
+
+restart_remote_service_shell() {
+  remote_bash "mkdir -p $(printf '%q' "${REMOTE_DATA_DIR}")"
+  remote_bash "if [[ -f $(printf '%q' "${REMOTE_PID_PATH}") ]]; then old_pid=\$(cat $(printf '%q' "${REMOTE_PID_PATH}") 2>/dev/null || true); if [[ -n \"\${old_pid}\" ]] && kill -0 \"\${old_pid}\" 2>/dev/null; then kill \"\${old_pid}\" 2>/dev/null || true; sleep 1; fi; rm -f $(printf '%q' "${REMOTE_PID_PATH}"); fi"
+  remote_bash "nohup env AB_PTY_PORT=$(printf '%q' "${PORT}") AB_PTY_DATABASE=$(printf '%q' "${REMOTE_DATA_DIR}/sessions.db") PATH=$(printf '%q' "${REMOTE_PATH_ENV}") $(printf '%q' "${REMOTE_BIN}") >> $(printf '%q' "${REMOTE_LOG_PATH}") 2>&1 < /dev/null & echo \$! > $(printf '%q' "${REMOTE_PID_PATH}")"
+  remote_bash "pid=\$(cat $(printf '%q' "${REMOTE_PID_PATH}") 2>/dev/null || true); [[ -n \"\${pid}\" ]] && kill -0 \"\${pid}\""
+}
+
+wait_for_health() {
+  local attempts=15
+  local i
+
+  if [[ -z "${HAS_REMOTE_CURL}" ]]; then
+    return 0
+  fi
+
+  for ((i=1; i<=attempts; i++)); do
+    if remote_bash "curl -fsS http://127.0.0.1:${PORT}/health >/dev/null 2>&1"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Daemon did not become healthy on port ${PORT}" >&2
+  return 1
+}
+
+restart_remote_service() {
+  if [[ -n "${HAS_SYSTEMD}" ]]; then
+    START_MODE="systemd"
+    restart_remote_service_systemd
+  else
+    START_MODE="shell"
+    restart_remote_service_shell
+  fi
+
+  wait_for_health
+}
+
+maybe_prepare_existing_secret() {
+  if [[ -n "${EXISTING_SECRET}" ]]; then
+    return
+  fi
+
+  if confirm "No remote JWT secret found. Generate one now?" "Y"; then
+    remote_bash "$(printf '%q' "${REMOTE_BIN}") genjwt -gen-secret -dir $(printf '%q' "${REMOTE_DIR}") >/dev/null"
+    EXISTING_SECRET="yes"
+  fi
+}
+
+generate_agent_token() {
+  remote_bash "$(printf '%q' "${REMOTE_BIN}") genjwt -dir $(printf '%q' "${REMOTE_DIR}")"
+}
+
+print_summary() {
+  local health_json=""
+  local agent_token=""
+
+  if [[ -n "${HAS_REMOTE_CURL}" ]]; then
+    health_json="$(remote_bash "curl -fsS http://127.0.0.1:${PORT}/health" || true)"
+  fi
+
+  echo
+  echo "Daemon info"
+  echo "Target:       ${TARGET}"
+  echo "Agent host:   ${AGENT_HOST}"
+  echo "Agent addr:   ${AGENT_HOST}:${PORT}"
+  echo "Remote dir:   ${REMOTE_DIR}"
+  echo "Service:      ${SERVICE_NAME}"
+  echo "Binary:       ${REMOTE_BIN}"
+  echo "Artifact:     ${ARTIFACT_PATH}"
+  echo "Source:       ${ARTIFACT_SOURCE}"
+  echo "Version:      ${DEPLOYED_VERSION:-${EXISTING_VERSION:-$LOCAL_VERSION}}"
+  echo "Start mode:   ${START_MODE:-detected-existing}"
+  echo "Codex:        $([[ -n "${HAS_REMOTE_CODEX}" ]] && echo installed || echo missing)"
+  echo "Claude Code:  $([[ -n "${HAS_REMOTE_CLAUDE}" ]] && echo installed || echo missing)"
+  if [[ -n "${health_json}" ]]; then
+    echo "Health:       ${health_json}"
+  else
+    echo "Health:       unable to query via remote curl"
+  fi
+
+  maybe_prepare_existing_secret
+
+  if confirm "Generate onboarding JWT for manual agent setup now?" "Y"; then
+    agent_token="$(generate_agent_token)"
+    echo
+    echo "Use these values when creating the agent in AB:"
+    echo "  IP / host: ${AGENT_HOST}:${PORT}"
+    echo "  JWT key:   ${agent_token}"
+  fi
+}
+
+main() {
+  require_local_tools
+  load_release_defaults
+  prompt_wizard
+  build_ssh_args
+
+  echo
+  echo "Connecting to ${TARGET}..."
+  remote_bash "echo ok >/dev/null"
+  detect_remote_sudo
+  collect_remote_state
+  resolve_remote_artifact_name
+
+  if [[ "${ARTIFACT_SOURCE}" == "release" ]]; then
+    download_release_artifact
+  else
+    load_local_artifact
+  fi
+
+  echo
+  echo "Local daemon version: ${LOCAL_VERSION}"
+  local overwrite_existing="yes"
+  if [[ -n "${EXISTING_BIN}" || -n "${EXISTING_UNIT}" ]]; then
+    echo "Existing deploy detected."
+    if [[ -n "${EXISTING_VERSION}" ]]; then
+      echo "Current remote version: ${EXISTING_VERSION}"
+    fi
+    if ! confirm "Overwrite existing daemon binary/systemd unit?" "N"; then
+      overwrite_existing="no"
+    fi
+  fi
+
+  if [[ "${overwrite_existing}" == "no" ]]; then
+    START_MODE="$([[ -n "${EXISTING_UNIT}" ]] && echo systemd || echo shell/existing)"
+    ensure_remote_cli_tools
+    print_summary
+    exit 0
+  fi
+
+  local rotate_secret="no"
+  if [[ -n "${EXISTING_SECRET}" ]]; then
+    if confirm "Regenerate existing JWT secret?" "N"; then
+      rotate_secret="yes"
+    fi
+  fi
+
+  deploy_binary
+  ensure_remote_secret "${rotate_secret}"
+  restart_remote_service
+  ensure_remote_cli_tools
+  EXISTING_VERSION="${DEPLOYED_VERSION:-$LOCAL_VERSION}"
+  print_summary
+
+}
+
+main "$@"

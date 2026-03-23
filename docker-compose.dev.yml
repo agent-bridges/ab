@@ -1,0 +1,70 @@
+services:
+  back:
+    build:
+      context: ${AB_BACK_PATH}
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: sh -c "uv sync --frozen && uv run python server.py"
+    volumes:
+      - ${AB_BACK_PATH}:/app
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_BACK_STATE_DIR}:/state/back
+      - ${AB_PTY_PATH}:/app/ab-pty:ro
+      - ${HOME}/.claude:/root/.claude:ro
+    environment:
+      AB_BACK_PORT: "8420"
+      AB_BACK_DB_PATH: /state/back/ab.db
+      AB_BACK_PTY_URL: http://pty:8421
+      AB_BACK_PTY_WS_URL: ws://pty:8421
+      AB_DEFAULT_USERNAME: ${AB_DEFAULT_USERNAME}
+      AB_DEFAULT_PASSWORD: ${AB_DEFAULT_PASSWORD}
+      VITE_DEV_URL: http://front:5180
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+
+  front:
+    build:
+      context: ${AB_FRONT_PATH}
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 5180"
+    environment:
+      BACKEND_URL: http://back:8420
+    volumes:
+      - ${AB_FRONT_PATH}:/app
+      - front_node_modules:/app/node_modules
+
+  pty:
+    build:
+      context: ${AB_PTY_PATH}
+      dockerfile: Dockerfile.dev
+    working_dir: /tmp
+    command:
+      - bash
+      - -lc
+      - |
+        export PATH="/root/.local/bin:/go/bin:/usr/local/go/bin:${PATH}"
+        rm -rf /tmp/pty-work
+        mkdir -p /tmp/pty-work
+        cp /src/*.go /src/go.mod /src/go.sum /tmp/pty-work/
+        cp /src/claude-hooks-settings.json /tmp/pty-work/claude-hooks.json
+        cp /src/claude-hook-forwarder.sh /usr/local/bin/claude-hook-forwarder
+        chmod +x /usr/local/bin/claude-hook-forwarder
+        cp /src/claudes /usr/local/bin/claudes
+        chmod +x /usr/local/bin/claudes
+        cd /tmp/pty-work
+        CGO_ENABLED=1 go build -o /tmp/ab-pty .
+        exec /tmp/ab-pty
+    volumes:
+      - ${AB_PTY_PATH}:/src:ro
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_PTY_STATE_DIR}:/state/pty
+      - ${AB_PTY_CLAUDE_DIR}:/root/.claude
+      - ${AB_PTY_CLAUDE_JSON_PATH}:/root/.claude.json
+      - ${AB_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+    environment:
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /state/pty/sessions.db
+      AB_PTY_ALLOWED_ORIGINS: ${AB_PTY_ALLOWED_ORIGINS}
+
+volumes:
+  front_node_modules:

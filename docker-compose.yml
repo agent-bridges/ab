@@ -1,0 +1,51 @@
+services:
+  back:
+    image: ${AB_BACK_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      - pty
+    volumes:
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_BACK_STATE_DIR}:/state/back
+      - ${HOME}/.claude:/root/.claude:ro
+    ports:
+      - "${AB_BACKEND_PORT}:8420"
+    environment:
+      AB_BACK_PORT: "8420"
+      AB_BACK_DB_PATH: /state/back/ab.db
+      AB_BACK_PTY_URL: http://pty:8421
+      AB_BACK_PTY_WS_URL: ws://pty:8421
+      AB_DEFAULT_USERNAME: ${AB_DEFAULT_USERNAME}
+      AB_DEFAULT_PASSWORD: ${AB_DEFAULT_PASSWORD}
+
+  front:
+    image: ${AB_FRONT_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      - back
+    environment:
+      BACKEND_UPSTREAM: back:8420
+    ports:
+      - "${AB_FRONT_PORT}:5180"
+
+  pty:
+    build:
+      context: ./docker/agent-runtime
+    image: agent-bridge-agent-runtime:${AB_IMAGE_TAG}
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
+      - ${AB_PTY_STATE_DIR}:/state/pty
+      - ${AB_PTY_CLAUDE_DIR}:/root/.claude
+      - ${AB_PTY_CLAUDE_JSON_PATH}:/root/.claude.json
+      - ${AB_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+    expose:
+      - "8421"
+    environment:
+      AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
+      AB_PTY_RELEASE_TAG: ${AB_IMAGE_TAG}
+      AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
+      AB_PTY_PORT: "8421"
+      AB_PTY_DATABASE: /state/pty/sessions.db
+      AB_PTY_ALLOWED_ORIGINS: ${AB_PTY_ALLOWED_ORIGINS}
