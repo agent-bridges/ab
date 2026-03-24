@@ -5,8 +5,8 @@ Welcome to Agent-Bridge.
 Agent-Bridge is a persistent workspace platform for AI coding agents. It combines a PTY daemon, backend API, canvas frontend, and a deploy/orchestration root so the whole stack can be cloned and started from one place.
 
 <p align="center">
-  <img src="./agent-bridge.dev/images/screen1.png" alt="Agent-Bridge workspace view 1" width="48%" />
-  <img src="./agent-bridge.dev/images/screen2.png" alt="Agent-Bridge workspace view 2" width="48%" />
+  <img src="./docs/screen1.png" alt="Agent-Bridge workspace view 1" width="48%" />
+  <img src="./docs/screen2.png" alt="Agent-Bridge workspace view 2" width="48%" />
 </p>
 
 <p align="center">
