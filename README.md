@@ -366,4 +366,3 @@ ab-pty/.artifacts/ab-pty-linux-amd64-glibc
 - [`AGENTS.md`](./AGENTS.md) - operator notes for agentic coding tools
 - [`docs/TOPOLOGY.md`](./docs/TOPOLOGY.md) - repository and runtime topology
 - [`docs/DEPLOY.md`](./docs/DEPLOY.md) - deployment and runtime policy
-- [`BACKLOG.md`](./BACKLOG.md) - open technical debt and deferred design work
