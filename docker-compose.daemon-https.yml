@@ -1,0 +1,6 @@
+services:
+  back:
+    environment:
+      AB_BACK_PTY_TLS_CA_PATH: /run/ab-pty-tls/ca.crt
+    volumes:
+      - ${AB_BACK_PTY_TLS_CA_MOUNT_SRC?set AB_BACK_PTY_TLS_CA_MOUNT_SRC}:/run/ab-pty-tls/ca.crt:ro

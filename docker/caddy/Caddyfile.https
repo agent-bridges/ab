@@ -1,0 +1,7 @@
+:443 {
+	tls /run/ab-tls/server.crt /run/ab-tls/server.key
+
+	@backend path /api/* /ws/*
+	reverse_proxy @backend back:8420
+	reverse_proxy front:5180
+}

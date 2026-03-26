@@ -103,6 +103,20 @@ PTY is a first-class subsystem with two supported deployment modes.
   - same env contract
   - same persistence expectations
 
+## Optional TLS Layers
+
+### Browser TLS edge
+- an optional `caddy` edge can sit in front of `front` and `back`
+- browser traffic then goes through the edge over HTTPS
+- browser mTLS is an optional second layer on top of that edge
+- the default plain browser entrypoint remains supported unless operators explicitly move traffic to the TLS edge
+
+### Remote daemon TLS / mTLS
+- an optional TLS edge can also sit in front of a remote host daemon
+- backend then talks to the remote PTY endpoint over `https://...`
+- client certificates are the recommended hardening layer when a PTY daemon is exposed beyond a private network
+- this keeps the PTY HTTP/WebSocket API shape unchanged while hardening the transport
+
 ## Test Topology
 
 The deploy root owns two extra runtime layers on top of the base production compose:

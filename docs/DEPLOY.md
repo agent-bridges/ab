@@ -118,6 +118,37 @@ These should not be left implicit inside ephemeral containers.
 ## Secure Defaults
 - PTY JWT material should stay in backend storage and should not be returned to browser clients
 - browser flows should remain cookie-authenticated and should not expose PTY secrets to frontend code
+- daemon transport over the public internet should prefer HTTPS, and mTLS is the recommended hardening layer when a PTY daemon is exposed beyond a private network
+
+## Optional Remote Daemon TLS / mTLS
+
+The default stack keeps the current plain HTTP daemon transport. Operators can opt into TLS for `back -> remote ab-pty` with compose overrides:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml -f docker-compose.daemon-mtls.yml up -d
+```
+
+Contract:
+- `docker-compose.daemon-https.yml` mounts a CA bundle into `back` and sets `AB_BACK_PTY_TLS_CA_PATH`
+- `docker-compose.daemon-mtls.yml` additionally mounts `client.crt` and `client.key` into `back`
+- no CA or client-cert files are mounted by default; enabling them is an explicit operator choice
+- remote agent URLs should then use `https://...` so `ab-back` talks to the daemon over TLS
+
+## Optional Browser HTTPS / Browser mTLS
+
+The default stack keeps the current plain browser entrypoint. Operators can add a separate TLS edge in front of `front` and `back`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.browser-mtls.yml up -d
+```
+
+Contract:
+- `docker-compose.tls.yml` adds a `caddy` edge and mounts `server.crt` / `server.key`
+- `docker-compose.browser-mtls.yml` swaps in the browser-mTLS Caddyfile and mounts the trusted browser CA
+- this is optional and does not replace the old plain ports automatically
+- if the public entrypoint is moved behind TLS, operators should stop exposing the old plain ports at the network perimeter
 
 ## Startup Expectations
 

@@ -1,0 +1,8 @@
+services:
+  back:
+    environment:
+      AB_BACK_PTY_TLS_CLIENT_CERT_PATH: /run/ab-pty-tls/client.crt
+      AB_BACK_PTY_TLS_CLIENT_KEY_PATH: /run/ab-pty-tls/client.key
+    volumes:
+      - ${AB_BACK_PTY_TLS_CLIENT_CERT_MOUNT_SRC?set AB_BACK_PTY_TLS_CLIENT_CERT_MOUNT_SRC}:/run/ab-pty-tls/client.crt:ro
+      - ${AB_BACK_PTY_TLS_CLIENT_KEY_MOUNT_SRC?set AB_BACK_PTY_TLS_CLIENT_KEY_MOUNT_SRC}:/run/ab-pty-tls/client.key:ro

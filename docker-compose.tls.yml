@@ -1,0 +1,13 @@
+services:
+  edge:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - front
+      - back
+    ports:
+      - "${AB_TLS_FRONTEND_PORT?set AB_TLS_FRONTEND_PORT}:443"
+    volumes:
+      - ./docker/caddy/Caddyfile.https:/etc/caddy/Caddyfile:ro
+      - ${AB_TLS_CERT_MOUNT_SRC?set AB_TLS_CERT_MOUNT_SRC}:/run/ab-tls/server.crt:ro
+      - ${AB_TLS_KEY_MOUNT_SRC?set AB_TLS_KEY_MOUNT_SRC}:/run/ab-tls/server.key:ro

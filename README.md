@@ -157,6 +157,24 @@ For a clean install without demo data or the extra demo daemon:
 scripts/stack.sh up --mode prod --skip-test-data
 ```
 
+Optional remote daemon HTTPS / mTLS:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml -f docker-compose.daemon-mtls.yml up -d
+```
+
+`docker-compose.daemon-https.yml` mounts a custom CA into `back` for `https://` PTY daemon endpoints. `docker-compose.daemon-mtls.yml` adds the client certificate and key used by `back` when the remote daemon requires mTLS.
+
+Optional browser HTTPS / browser mTLS:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.browser-mtls.yml up -d
+```
+
+This adds a small Caddy edge in front of `front` and `back`. It keeps the old plain ports intact by default and publishes an extra HTTPS entrypoint on `AB_TLS_FRONTEND_PORT`.
+
 ### Dev Mode
 
 Use this when you want bind mounts and live source changes inside containers.
