@@ -125,6 +125,7 @@ These should not be left implicit inside ephemeral containers.
 The default stack keeps the current plain HTTP daemon transport. Operators can opt into TLS for `back -> remote ab-pty` with compose overrides:
 
 ```bash
+scripts/gen-certs.sh daemon --daemon-host daemon.example.com
 scripts/stack.sh up --mode prod --daemon-https
 scripts/stack.sh up --mode prod --daemon-https --daemon-mtls
 ```
@@ -140,6 +141,7 @@ Contract:
 The default stack keeps the current plain browser entrypoint. Operators can add a separate TLS edge in front of `front` and `back`:
 
 ```bash
+scripts/gen-certs.sh browser --browser-host localhost --browser-host 127.0.0.1
 scripts/stack.sh up --mode prod --tls
 scripts/stack.sh up --mode prod --tls --browser-mtls
 ```

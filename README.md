@@ -160,6 +160,7 @@ scripts/stack.sh up --mode prod --skip-test-data
 Optional remote daemon HTTPS / mTLS:
 
 ```bash
+scripts/gen-certs.sh daemon --daemon-host daemon.example.com
 scripts/stack.sh up --mode prod --daemon-https
 scripts/stack.sh up --mode prod --daemon-https --daemon-mtls
 ```
@@ -169,6 +170,7 @@ scripts/stack.sh up --mode prod --daemon-https --daemon-mtls
 Optional browser HTTPS / browser mTLS:
 
 ```bash
+scripts/gen-certs.sh browser --browser-host localhost --browser-host 127.0.0.1
 scripts/stack.sh up --mode prod --tls
 scripts/stack.sh up --mode prod --tls --browser-mtls
 ```
