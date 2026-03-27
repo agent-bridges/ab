@@ -147,8 +147,8 @@ scripts/stack.sh up --mode prod --tls --browser-mtls
 ```
 
 Contract:
-- `docker-compose.tls.yml` adds a `caddy` edge and mounts `server.crt` / `server.key`
-- `docker-compose.browser-mtls.yml` swaps in the browser-mTLS Caddyfile and mounts the trusted browser CA
+- `docker-compose.tls.yml` adds an `nginx` edge and mounts `server.crt` / `server.key`
+- `docker-compose.browser-mtls.yml` swaps in the browser-mTLS nginx config and mounts the trusted browser CA
 - this is optional and does not replace the old plain ports automatically
 - if the public entrypoint is moved behind TLS, operators should stop exposing the old plain ports at the network perimeter
 

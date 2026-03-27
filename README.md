@@ -175,7 +175,7 @@ scripts/stack.sh up --mode prod --tls
 scripts/stack.sh up --mode prod --tls --browser-mtls
 ```
 
-This adds a small Caddy edge in front of `front` and `back`. It keeps the old plain ports intact by default and publishes an extra HTTPS entrypoint on `AB_TLS_FRONTEND_PORT`.
+This adds a small `nginx` edge in front of `front` and `back`. It keeps the old plain ports intact by default and publishes an extra HTTPS entrypoint on `AB_TLS_FRONTEND_PORT`.
 
 ### Dev Mode
 

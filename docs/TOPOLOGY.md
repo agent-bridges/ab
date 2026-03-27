@@ -106,7 +106,7 @@ PTY is a first-class subsystem with two supported deployment modes.
 ## Optional TLS Layers
 
 ### Browser TLS edge
-- an optional `caddy` edge can sit in front of `front` and `back`
+- an optional `nginx` edge can sit in front of `front` and `back`
 - browser traffic then goes through the edge over HTTPS
 - browser mTLS is an optional second layer on top of that edge
 - the default plain browser entrypoint remains supported unless operators explicitly move traffic to the TLS edge

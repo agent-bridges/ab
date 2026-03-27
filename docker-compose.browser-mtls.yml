@@ -1,5 +1,5 @@
 services:
   edge:
     volumes:
-      - ./docker/caddy/Caddyfile.mtls:/etc/caddy/Caddyfile:ro
+      - ./docker/nginx/nginx.mtls.conf:/etc/nginx/nginx.conf:ro
       - ${AB_TLS_BROWSER_CA_MOUNT_SRC?set AB_TLS_BROWSER_CA_MOUNT_SRC}:/run/ab-tls/browser-ca.crt:ro
