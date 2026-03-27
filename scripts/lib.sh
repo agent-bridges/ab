@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FILTERED_ARGS=()
+STACK_ENABLE_TLS="${STACK_ENABLE_TLS:-0}"
+STACK_ENABLE_BROWSER_MTLS="${STACK_ENABLE_BROWSER_MTLS:-0}"
+STACK_ENABLE_DAEMON_HTTPS="${STACK_ENABLE_DAEMON_HTTPS:-0}"
+STACK_ENABLE_DAEMON_MTLS="${STACK_ENABLE_DAEMON_MTLS:-0}"
 
 require_nonempty_envs() {
   local missing=0
@@ -176,6 +180,18 @@ run_compose() {
     if should_include_test_data; then
       compose_args+=(-f docker-compose.demo.yml)
     fi
+    if [[ "${STACK_ENABLE_DAEMON_HTTPS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.daemon-https.yml)
+    fi
+    if [[ "${STACK_ENABLE_DAEMON_MTLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.daemon-mtls.yml)
+    fi
+    if [[ "${STACK_ENABLE_TLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.tls.yml)
+    fi
+    if [[ "${STACK_ENABLE_BROWSER_MTLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.browser-mtls.yml)
+    fi
     docker compose "${compose_args[@]}" "$@"
   )
 }
@@ -192,6 +208,18 @@ run_compose_dev() {
     compose_args+=(-f docker-compose.dev.yml)
     if should_include_test_data; then
       compose_args+=(-f docker-compose.dev-demo.yml)
+    fi
+    if [[ "${STACK_ENABLE_DAEMON_HTTPS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.daemon-https.yml)
+    fi
+    if [[ "${STACK_ENABLE_DAEMON_MTLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.daemon-mtls.yml)
+    fi
+    if [[ "${STACK_ENABLE_TLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.tls.yml)
+    fi
+    if [[ "${STACK_ENABLE_BROWSER_MTLS}" == "1" ]]; then
+      compose_args+=(-f docker-compose.browser-mtls.yml)
     fi
     docker compose "${compose_args[@]}" "$@"
   )

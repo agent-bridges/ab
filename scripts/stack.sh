@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/stack.sh <up|down|ps|logs> [--mode prod|dev|quick-start] [--skip-test-data] [extra docker compose args...]
+  scripts/stack.sh <up|down|ps|logs> [--mode prod|dev|quick-start] [--skip-test-data] [--tls] [--browser-mtls] [--daemon-https] [--daemon-mtls] [extra docker compose args...]
 
 Modes:
   prod         Published-image stack driven by .env
@@ -16,7 +16,10 @@ Modes:
 Examples:
   scripts/stack.sh up --mode prod
   scripts/stack.sh up --mode prod --skip-test-data
+  scripts/stack.sh up --mode prod --tls
+  scripts/stack.sh up --mode prod --daemon-https --daemon-mtls
   scripts/stack.sh up --mode dev
+  scripts/stack.sh up --mode dev --tls
   scripts/stack.sh up --mode quick-start
   docker compose --env-file .env.quick-start -f docker-compose.quick-start.yml up -d
 EOF
@@ -30,6 +33,10 @@ fi
 shift
 
 MODE="prod"
+ENABLE_TLS=0
+ENABLE_BROWSER_MTLS=0
+ENABLE_DAEMON_HTTPS=0
+ENABLE_DAEMON_MTLS=0
 FILTERED_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -42,12 +49,45 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --tls)
+      ENABLE_TLS=1
+      shift
+      ;;
+    --browser-mtls)
+      ENABLE_TLS=1
+      ENABLE_BROWSER_MTLS=1
+      shift
+      ;;
+    --daemon-https)
+      ENABLE_DAEMON_HTTPS=1
+      shift
+      ;;
+    --daemon-mtls)
+      ENABLE_DAEMON_HTTPS=1
+      ENABLE_DAEMON_MTLS=1
+      shift
+      ;;
     *)
       FILTERED_ARGS+=("$1")
       shift
       ;;
   esac
 done
+
+if [[ "${ENABLE_BROWSER_MTLS}" == "1" && "${ENABLE_TLS}" != "1" ]]; then
+  echo "--browser-mtls requires --tls" >&2
+  exit 1
+fi
+
+if [[ "${ENABLE_DAEMON_MTLS}" == "1" && "${ENABLE_DAEMON_HTTPS}" != "1" ]]; then
+  echo "--daemon-mtls requires --daemon-https" >&2
+  exit 1
+fi
+
+export STACK_ENABLE_TLS="${ENABLE_TLS}"
+export STACK_ENABLE_BROWSER_MTLS="${ENABLE_BROWSER_MTLS}"
+export STACK_ENABLE_DAEMON_HTTPS="${ENABLE_DAEMON_HTTPS}"
+export STACK_ENABLE_DAEMON_MTLS="${ENABLE_DAEMON_MTLS}"
 
 case "${COMMAND}" in
   up|down|ps|logs)
@@ -117,6 +157,10 @@ case "${MODE}" in
     ;;
 
   quick-start)
+    if [[ "${ENABLE_TLS}" == "1" || "${ENABLE_BROWSER_MTLS}" == "1" || "${ENABLE_DAEMON_HTTPS}" == "1" || "${ENABLE_DAEMON_MTLS}" == "1" ]]; then
+      echo "TLS and daemon transport overrides are not supported in quick-start mode" >&2
+      exit 1
+    fi
     if printf '%s\n' "${FILTERED_ARGS[@]}" | rg -qx -- '--skip-test-data' >/dev/null 2>&1; then
       echo "--skip-test-data is not supported in quick-start mode" >&2
       exit 1

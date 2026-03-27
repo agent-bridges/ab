@@ -125,8 +125,8 @@ These should not be left implicit inside ephemeral containers.
 The default stack keeps the current plain HTTP daemon transport. Operators can opt into TLS for `back -> remote ab-pty` with compose overrides:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.daemon-https.yml -f docker-compose.daemon-mtls.yml up -d
+scripts/stack.sh up --mode prod --daemon-https
+scripts/stack.sh up --mode prod --daemon-https --daemon-mtls
 ```
 
 Contract:
@@ -140,8 +140,8 @@ Contract:
 The default stack keeps the current plain browser entrypoint. Operators can add a separate TLS edge in front of `front` and `back`:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.browser-mtls.yml up -d
+scripts/stack.sh up --mode prod --tls
+scripts/stack.sh up --mode prod --tls --browser-mtls
 ```
 
 Contract:
