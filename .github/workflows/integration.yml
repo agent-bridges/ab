@@ -71,7 +71,12 @@ jobs:
           done
           docker compose exec -T pty sh -lc 'curl -fsS http://127.0.0.1:8421/health'
           docker compose exec -T agent-demo sh -lc 'curl -fsS http://127.0.0.1:8421/health'
-          curl -fsS http://127.0.0.1:8520/api/agents | grep -q 'docker-demo-agent'
+          curl -fsS \
+            -c /tmp/ab.cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"admin"}' \
+            http://127.0.0.1:8520/api/auth/login >/dev/null
+          curl -fsS -b /tmp/ab.cookies http://127.0.0.1:8520/api/agents | grep -q 'docker-demo-agent'
 
       - name: Collect logs on failure
         if: failure()
