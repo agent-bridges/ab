@@ -182,6 +182,6 @@ If you change auth behavior, verify:
 ## Git / Release Notes
 
 Current release tag used across repos:
-- `v0.1.6`
+- `v0.1.8`
 
 Keep tags and commits per-repo. Do not assume one commit covers all child repos.

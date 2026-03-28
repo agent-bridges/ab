@@ -23,7 +23,7 @@ Agent-Bridge is a persistent workspace platform for AI coding agents. It combine
 </p>
 
 Current release series:
-- `v0.1.6`
+- `v0.1.8`
 
 ## Quick Start
 
