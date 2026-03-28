@@ -47,6 +47,15 @@ sys.exit(1)
 PY
 }
 
+exec_back_python() {
+  local script="$1"
+  shift || true
+
+  run_compose exec -T "$@" back python3 - <<PY
+${script}
+PY
+}
+
 generate_demo_agent_jwt() {
   mkdir -p "${DEMO_AGENT_STATE_DIR}"
 
@@ -89,22 +98,15 @@ PY
 }
 
 upsert_demo_agent() {
-  local db_dir db_path demo_jwt
-
-  db_dir="$(resolve_path "${AB_BACK_STATE_DIR}")"
-  db_path="${db_dir}/ab.db"
+  local demo_jwt
   demo_jwt="$(generate_demo_agent_jwt)"
 
-  BACK_DB_PATH="${db_path}" \
-  DEMO_AGENT_NAME="${DEMO_AGENT_NAME}" \
-  DEMO_AGENT_IP="${DEMO_AGENT_IP}" \
-  DEMO_AGENT_JWT="${demo_jwt}" \
-  python3 - <<'PY'
+  exec_back_python "$(cat <<'PY'
 import os
 import sqlite3
 from datetime import UTC, datetime
 
-db_path = os.environ["BACK_DB_PATH"]
+db_path = "/state/back/ab.db"
 name = os.environ["DEMO_AGENT_NAME"]
 ip = os.environ["DEMO_AGENT_IP"]
 jwt_key = os.environ["DEMO_AGENT_JWT"]
@@ -128,23 +130,25 @@ else:
 conn.commit()
 conn.close()
 PY
+)" \
+    -e DEMO_AGENT_NAME="${DEMO_AGENT_NAME}" \
+    -e DEMO_AGENT_IP="${DEMO_AGENT_IP}" \
+    -e DEMO_AGENT_JWT="${demo_jwt}"
 }
 
 remove_demo_agent() {
-  local db_dir db_path
+  local db_dir
 
   db_dir="$(resolve_path "${AB_BACK_STATE_DIR}")"
-  db_path="${db_dir}/ab.db"
-
-  if [[ ! -f "${db_path}" ]]; then
+  if [[ ! -f "${db_dir}/ab.db" ]]; then
     return
   fi
 
-  BACK_DB_PATH="${db_path}" DEMO_AGENT_NAME="${DEMO_AGENT_NAME}" python3 - <<'PY'
+  exec_back_python "$(cat <<'PY'
 import os
 import sqlite3
 
-db_path = os.environ["BACK_DB_PATH"]
+db_path = "/state/back/ab.db"
 name = os.environ["DEMO_AGENT_NAME"]
 
 conn = sqlite3.connect(db_path)
@@ -153,6 +157,7 @@ cur.execute("DELETE FROM agents WHERE name = ?", (name,))
 conn.commit()
 conn.close()
 PY
+)" -e DEMO_AGENT_NAME="${DEMO_AGENT_NAME}"
 }
 
 main() {
