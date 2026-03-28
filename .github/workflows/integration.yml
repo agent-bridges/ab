@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           scripts/bootstrap.sh
-          docker compose -f docker-compose.yml pull
+          docker compose -f docker-compose.yml pull back front
           scripts/stack.sh up --mode prod
 
       - name: Wait for smoke endpoints
