@@ -47,7 +47,7 @@ services:
       - "8421"
     environment:
       AB_PTY_RELEASE_REPO: agent-bridges/ab-pty
-      AB_PTY_RELEASE_TAG: ${AB_IMAGE_TAG}
+      AB_PTY_RELEASE_TAG: ${AB_PTY_RELEASE_TAG:-${AB_IMAGE_TAG}}
       AB_PTY_DOWNLOAD_TOKEN: ${AB_PTY_DOWNLOAD_TOKEN}
       AB_PTY_PORT: "8421"
       AB_PTY_DATABASE: /state/pty/sessions.db
