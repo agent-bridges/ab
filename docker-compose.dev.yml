@@ -60,7 +60,7 @@ services:
       - ${AB_PTY_STATE_DIR}:/state/pty
       - ${AB_PTY_CLAUDE_DIR}:/root/.claude
       - ${AB_PTY_CLAUDE_JSON_PATH}:/root/.claude.json
-      - ${AB_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     environment:
       AB_PTY_PORT: "8421"
       AB_PTY_DATABASE: /state/pty/sessions.db

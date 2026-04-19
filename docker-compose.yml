@@ -19,6 +19,7 @@ services:
       AB_BACK_PTY_WS_URL: ws://pty:8421
       AB_DEFAULT_USERNAME: ${AB_DEFAULT_USERNAME}
       AB_DEFAULT_PASSWORD: ${AB_DEFAULT_PASSWORD}
+      AB_HOST_HOSTNAME: ${AB_HOST_HOSTNAME:-}
 
   front:
     image: ${AB_FRONT_IMAGE}
@@ -41,7 +42,7 @@ services:
       - ${AB_PTY_STATE_DIR}:/state/pty
       - ${AB_PTY_CLAUDE_DIR}:/root/.claude
       - ${AB_PTY_CLAUDE_JSON_PATH}:/root/.claude.json
-      - ${AB_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     expose:
       - "8421"
     environment:

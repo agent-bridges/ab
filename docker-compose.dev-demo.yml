@@ -24,7 +24,7 @@ services:
       - ${AB_PTY_PATH}:/src:ro
       - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
       - ${AB_DEMO_AGENT_STATE_DIR}:/data
-      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     environment:
       AB_PTY_PORT: "8421"
       AB_PTY_DATABASE: /data/sessions.db

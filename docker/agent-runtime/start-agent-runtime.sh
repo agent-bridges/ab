@@ -19,7 +19,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-install_dir="/opt/agent-bridge/bin"
+install_dir="/opt/ab/bin"
 binary_path="${install_dir}/ab-pty"
 tmp_file="$(mktemp)"
 release_url="https://github.com/${AB_PTY_RELEASE_REPO}/releases/download/${AB_PTY_RELEASE_TAG}/${asset_name}"

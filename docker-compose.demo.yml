@@ -7,7 +7,7 @@ services:
     volumes:
       - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
       - ${AB_DEMO_AGENT_STATE_DIR}:/data
-      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_DEMO_AGENT_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     expose:
       - "8421"
     environment:

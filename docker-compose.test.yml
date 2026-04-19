@@ -7,7 +7,7 @@ services:
     volumes:
       - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
       - ${AB_TEST_AGENT1_STATE_DIR}:/data
-      - ${AB_TEST_AGENT1_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_TEST_AGENT1_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     ports:
       - "${AB_TEST_AGENT1_PORT}:8421"
     environment:
@@ -25,7 +25,7 @@ services:
     volumes:
       - ${AB_WORKSPACE_PATH}:${AB_WORKSPACE_PATH}
       - ${AB_TEST_AGENT2_STATE_DIR}:/data
-      - ${AB_TEST_AGENT2_JWT_SECRET_PATH}:/opt/agent-bridge/.jwt-secret:ro
+      - ${AB_TEST_AGENT2_JWT_SECRET_PATH}:/opt/ab/.jwt-secret:ro
     ports:
       - "${AB_TEST_AGENT2_PORT}:8421"
     environment:

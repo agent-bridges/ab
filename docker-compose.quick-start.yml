@@ -48,7 +48,7 @@ services:
       - ./state/quick-start/pty:/state/pty
       - ./state/quick-start/pty/dot-claude:/root/.claude
       - ./state/quick-start/pty/claude.json:/root/.claude.json
-      - ./state/quick-start/back/jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+      - ./state/quick-start/back/jwt-secret:/opt/ab/.jwt-secret:ro
     expose:
       - "8421"
     environment:
@@ -102,7 +102,7 @@ services:
     volumes:
       - ./workspace:/workspace
       - ./state/quick-start/demo/agent/data:/data
-      - ./state/quick-start/demo/agent/.jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+      - ./state/quick-start/demo/agent/.jwt-secret:/opt/ab/.jwt-secret:ro
     expose:
       - "8421"
     environment:
@@ -123,7 +123,7 @@ services:
     volumes:
       - ./workspace:/workspace
       - ./state/quick-start/demo/agent-2/data:/data
-      - ./state/quick-start/demo/agent-2/.jwt-secret:/opt/agent-bridge/.jwt-secret:ro
+      - ./state/quick-start/demo/agent-2/.jwt-secret:/opt/ab/.jwt-secret:ro
     expose:
       - "8421"
     environment:

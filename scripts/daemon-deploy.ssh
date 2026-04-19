@@ -3,7 +3,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-DEFAULT_REMOTE_DIR="/opt/agent-bridge"
+DEFAULT_REMOTE_DIR="/opt/ab"
 DEFAULT_SERVICE_NAME="ab-pty"
 DEFAULT_PORT="8421"
 
