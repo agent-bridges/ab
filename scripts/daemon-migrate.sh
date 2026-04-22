@@ -145,6 +145,19 @@ if [[ -f "$UNIT_FILE" ]] && grep -qE '/opt/(nag-daemons|ab-pty|agent-bridge|data
   fi
 fi
 
+# Install the short-name `ab` CLI wrapper. Lets the in-session agent run
+# `ab sessions list/write/tail/...` instead of spelling out
+# `/opt/ab/ab-pty client sessions ...`.
+WRAPPER_PATH=/usr/local/bin/ab
+WRAPPER_CONTENT='#!/bin/sh
+exec /opt/ab/ab-pty client "$@"'
+if $APPLY; then
+  log "RUN: install $WRAPPER_PATH"
+  printf '%s\n' "$WRAPPER_CONTENT" > "$WRAPPER_PATH" && chmod +x "$WRAPPER_PATH"
+else
+  log "DRY: install $WRAPPER_PATH"
+fi
+
 # Start the service again if systemd is available.
 if command -v systemctl >/dev/null 2>&1 && systemctl cat ab-pty >/dev/null 2>&1; then
   run "systemctl start ab-pty"
