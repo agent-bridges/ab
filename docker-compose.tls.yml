@@ -7,7 +7,15 @@ services:
       - back
     ports:
       - "${AB_TLS_FRONTEND_PORT?set AB_TLS_FRONTEND_PORT}:443"
+      # mTLS-enforced mirror of :443. nginx.https.conf has a second server-block
+      # with `ssl_verify_client on`. The front redirects browsers here when the
+      # "Require client cert" setting is on; this port refuses any connection
+      # without a valid client cert at TLS handshake.
+      - "${AB_TLS_MTLS_PORT:-5444}:5444"
     volumes:
       - ./docker/nginx/nginx.https.conf:/etc/nginx/nginx.conf:ro
       - ${AB_TLS_CERT_MOUNT_SRC?set AB_TLS_CERT_MOUNT_SRC}:/run/ab-tls/server.crt:ro
       - ${AB_TLS_KEY_MOUNT_SRC?set AB_TLS_KEY_MOUNT_SRC}:/run/ab-tls/server.key:ro
+      # CA always mounted so the :5444 mtls server-block can validate clients.
+      # Back bootstraps the CA on startup if missing so this path always exists.
+      - ${AB_TLS_BROWSER_CA_MOUNT_SRC:-./state/back/edge-tls/ca.crt}:/run/ab-tls/browser-ca.crt:ro
